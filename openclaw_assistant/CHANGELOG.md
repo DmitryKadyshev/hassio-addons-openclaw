@@ -2,6 +2,11 @@
 
 All notable changes to the OpenClaw Assistant Home Assistant Add-on will be documented in this file.
 
+## [0.5.87] - 2026-08-10
+
+### Fixed
+- Correct the bundled OpenClaw npm package version in the Docker image build for add-on `0.5.86`, fixing failed installs that requested the nonexistent `openclaw@2026.7.1-2-2`.
+
 ## [0.5.85] - 2026-07-21
 
 ### Changed
