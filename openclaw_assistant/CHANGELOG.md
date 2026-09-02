@@ -2,7 +2,7 @@
 
 All notable changes to the OpenClaw Assistant Home Assistant Add-on will be documented in this file.
 
-## [0.5.88] - 2026-08-12
+## [0.5.88] - 2026-08-25
 
 ### Added
 - **Resource profiles** (`resource_profile`): the add-on now gives the gateway an explicit Node.js heap budget instead of letting it size against total host memory. `auto` (default) picks `low` / `balanced` / `high` from CPU architecture and RAM, and never writes to `openclaw.json`. Selecting `low` explicitly also applies conservative OpenClaw defaults (currently `browser.enabled: false`) for keys you have not set yourself. The resolved profile and heap limit are logged at startup and shown on the landing page.
@@ -11,6 +11,7 @@ All notable changes to the OpenClaw Assistant Home Assistant Add-on will be docu
 - Supervisor watchdog on the ingress port, so Home Assistant restarts the add-on if the ingress proxy stops answering. Can be turned off with the Watchdog toggle on the add-on page.
 
 ### Fixed
+- Preserve explicit `false` values for boolean add-on options instead of replacing them with `true` defaults during startup. This restores settings such as strict Control UI device authentication, disabled terminal access, and IPv6-capable DNS behavior after an add-on restart or rebuild.
 - Documentation listed Node.js 22 in the bundled tools table; the image has shipped Node.js 24 since `0.5.83`.
 
 ## [0.5.87] - 2026-08-10
