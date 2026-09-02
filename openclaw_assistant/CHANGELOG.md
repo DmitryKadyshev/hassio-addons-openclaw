@@ -15,6 +15,7 @@ All notable changes to the OpenClaw Assistant Home Assistant Add-on will be docu
 - Startup warnings about legacy `/config/.node_global` and `/config/.linuxbrew` directories no longer claim they inflate Home Assistant backups (they are now excluded). The warning explains they only use disk space and gives the exact removal command.
 
 ### Fixed
+- **Gateway restart loop after an OpenClaw upgrade**: releases that gate startup behind a data migration (such as the legacy workspace state check in `2026.8.2`) made the supervisor restart the gateway forever, writing a stability bundle on every attempt. The add-on now runs the documented `openclaw doctor --fix` repair once per start after repeated failures — snapshotting `openclaw.json` first so it is reversible — and backs off between restarts (2s doubling to a 60s cap) instead of retrying every 2 seconds. After five consecutive failures it logs the exact diagnostic commands to run. The terminal and add-on page stay available throughout.
 - Documentation listed Node.js 22 in the bundled tools table; the image has shipped Node.js 24 since `0.5.83`.
 
 ## [0.5.89] - 2026-09-02
