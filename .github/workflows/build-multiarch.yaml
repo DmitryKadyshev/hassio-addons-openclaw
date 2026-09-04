@@ -23,17 +23,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-        with:
-          platforms: arm64
       - uses: docker/setup-buildx-action@v3
-      - name: Build all supported architectures
-        uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6
         with:
           context: ./openclaw_assistant
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: false
           build-args: |
+            BUILD_FROM=ghcr.io/home-assistant/amd64-base-debian:bookworm
             BUILD_VERSION=${{ github.event.pull_request.head.sha }}
           tags: openclaw-assistant:pr
 
@@ -45,21 +42,30 @@ jobs:
         include:
           - arch: amd64
             platform: linux/amd64
+            build_from: ghcr.io/home-assistant/amd64-base-debian:bookworm
           - arch: aarch64
             platform: linux/arm64
+            build_from: ghcr.io/home-assistant/aarch64-base-debian:bookworm
+          - arch: armv7
+            platform: linux/arm/v7
+            build_from: ghcr.io/home-assistant/armv7-base-debian:bookworm
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: docker/setup-qemu-action@v3
         with:
-          platforms: arm64
+          platforms: arm64,arm
+
       - uses: docker/setup-buildx-action@v3
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Read add-on version
         id: version
         shell: bash
@@ -68,6 +74,7 @@ jobs:
           version="$(sed -n 's/^version: *"\([0-9][0-9.]*\)"$/\1/p' "$ADDON_PATH/config.yaml")"
           test -n "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Determine image tag
         id: tags
         shell: bash
@@ -77,16 +84,24 @@ jobs:
         run: |
           set -euo pipefail
           case "$REF_NAME" in
-            develop) tag="dev" ;;
+            develop)
+              tag="dev"
+              ;;
             release/*)
               release_version="${REF_NAME#release/}"
               test "$release_version" = "$VERSION"
               tag="${VERSION}-rc.${GITHUB_RUN_NUMBER}"
               ;;
-            main) tag="$VERSION" ;;
-            *) echo "Unsupported Gitflow branch: $REF_NAME" >&2; exit 1 ;;
+            main)
+              tag="$VERSION"
+              ;;
+            *)
+              echo "Unsupported Gitflow branch: $REF_NAME" >&2
+              exit 1
+              ;;
           esac
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
       - name: Build and push architecture image
         uses: docker/build-push-action@v6
         with:
@@ -94,6 +109,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: true
           build-args: |
+            BUILD_FROM=${{ matrix.build_from }}
             BUILD_VERSION=${{ steps.version.outputs.version }}
           tags: ${{ env.IMAGE_NAME }}:${{ steps.tags.outputs.tag }}-${{ matrix.arch }}
           cache-from: type=gha,scope=${{ matrix.arch }}
@@ -104,13 +120,16 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Read add-on version
         id: version
         shell: bash
@@ -119,6 +138,7 @@ jobs:
           version="$(sed -n 's/^version: *"\([0-9][0-9.]*\)"$/\1/p' "$ADDON_PATH/config.yaml")"
           test -n "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: Determine image tag
         id: tags
         shell: bash
@@ -128,26 +148,37 @@ jobs:
         run: |
           set -euo pipefail
           case "$REF_NAME" in
-            develop) tag="dev" ;;
+            develop)
+              tag="dev"
+              ;;
             release/*)
               release_version="${REF_NAME#release/}"
               test "$release_version" = "$VERSION"
               tag="${VERSION}-rc.${GITHUB_RUN_NUMBER}"
               ;;
-            main) tag="$VERSION" ;;
-            *) echo "Unsupported Gitflow branch: $REF_NAME" >&2; exit 1 ;;
+            main)
+              tag="$VERSION"
+              ;;
+            *)
+              echo "Unsupported Gitflow branch: $REF_NAME" >&2
+              exit 1
+              ;;
           esac
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
       - name: Publish multi-arch manifest
         shell: bash
         run: |
           set -euo pipefail
           image="$IMAGE_NAME"
           tag="${{ steps.tags.outputs.tag }}"
+
           docker buildx imagetools create \
             -t "$image:$tag" \
             "$image:$tag-amd64" \
-            "$image:$tag-aarch64"
+            "$image:$tag-aarch64" \
+            "$image:$tag-armv7"
+
           if [ "${GITHUB_REF_NAME}" = "main" ]; then
             docker buildx imagetools create -t "$image:latest" "$image:$tag"
           fi
