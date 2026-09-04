@@ -1,4 +1,4 @@
-ARG BUILD_FROM
+ARG BUILD_FROM=ghcr.io/home-assistant/base-debian:bookworm
 FROM ${BUILD_FROM}
 
 # Base image is Debian Bookworm (glibc). This avoids musl-related native module issues
@@ -7,37 +7,13 @@ FROM ${BUILD_FROM}
 # Install base packages (without nodejs/npm - we'll get Node 24 from NodeSource)
 # build-essential provides gcc/cc needed by Homebrew for OpenClaw's brew-managed dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash \
-    git \
-    openssh-client \
-    ca-certificates \
-    tzdata \
-    jq \
-    curl \
-    tar \
-    xz-utils \
-    file \
-    python3 \
-    cmake \
-    nginx \
-    gnupg \
-    build-essential \
-    sudo \
-    vim \
-    nano \
-    fd-find \
-    ripgrep \
-    rsync \
-    bat \
-    less \
-    openssl \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    bash git openssh-client ca-certificates tzdata jq curl tar xz-utils file python3 \
+    cmake nginx gnupg build-essential sudo vim nano fd-find ripgrep rsync bat less openssl \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 24 LTS from NodeSource.
-# OpenClaw supports Node >=24.15.0, and this keeps the image compatible with the
-# current mcporter releases without relying on an older pinned CLI line.
-# Use explicit keyring + apt source instead of setup_24.x pipe script for deterministic builds.
+# OpenClaw supports Node >=24.15.0. Node 24 does not publish an official Linux armv7 binary,
+# so this add-on is intentionally limited to the currently supported amd64/arm64 platforms.
 RUN mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
     | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
@@ -50,13 +26,11 @@ RUN mkdir -p /etc/apt/keyrings \
     && echo "$NODE_VERSION" \
     && echo "$NODE_VERSION" | grep -E '^v24\.' \
     && rm -f /etc/apt/sources.list.d/nodesource.list /etc/apt/keyrings/nodesource.gpg \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install ttyd (web terminal) - not in Debian repos, download binary
-# Docker TARGETARCH: amd64, arm64, arm/v7 → ttyd filenames: x86_64, aarch64, armhf
+# Install ttyd (web terminal) for the supported architectures.
 ARG TARGETARCH
-RUN ARCH=$(echo ${TARGETARCH:-$(dpkg --print-architecture)} | sed 's|arm64|aarch64|;s|arm/v7|armhf|;s|armv7|armhf|;s|amd64|x86_64|') \
+RUN ARCH=$(echo ${TARGETARCH:-$(dpkg --print-architecture)} | sed 's|arm64|aarch64|;s|amd64|x86_64|') \
     && echo "Downloading ttyd for arch: ${ARCH}" \
     && curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.${ARCH}" -o /usr/local/bin/ttyd \
     && chmod +x /usr/local/bin/ttyd
@@ -67,17 +41,10 @@ RUN node -v && npm -v
 RUN npm install -g pnpm && pnpm -v
 
 # Install Chromium for website automation tasks
-# Includes necessary dependencies for headless browser operation
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium \
-    chromium-driver \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends chromium chromium-driver \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Homebrew (Linuxbrew) for OpenClaw skill dependencies
-# Homebrew is optional - some skills need CLI tools like gemini, aider, etc.
-# NOTE: Homebrew requires CPU with SSSE3 support (Intel Core 2 or newer, ~2006+)
-# If installation fails (e.g., older CPUs), the add-on will still work but some skills may not install
 ENV HOMEBREW_NO_AUTO_UPDATE=1 \
     HOMEBREW_NO_INSTALL_CLEANUP=1 \
     HOMEBREW_NO_ANALYTICS=1
@@ -95,42 +62,24 @@ RUN if [ -d /home/linuxbrew/.linuxbrew/Homebrew ]; then \
     /home/linuxbrew/.linuxbrew/bin/brew update --force || true; \
     fi
 USER root
-
-# Add Homebrew to PATH for all users (wrapper comes first to intercept root calls)
-# PATH is set even if brew failed - wrapper will handle missing brew gracefully
 ENV PATH="/usr/local/bin:/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:${PATH}"
 
-# Copy brew wrapper that allows root to run brew by delegating to linuxbrew user
 COPY brew-wrapper.sh /usr/local/bin/brew
 RUN chmod +x /usr/local/bin/brew
 
-# Verify brew is available and install gcc (needed for compiling some brew packages)
-# Skip if brew installation failed
 USER linuxbrew
 RUN if [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then \
-    /home/linuxbrew/.linuxbrew/bin/brew --version && \
-    /home/linuxbrew/.linuxbrew/bin/brew install gcc || true; \
-    else \
-    echo "Skipping gcc installation - Homebrew not available"; \
-    fi
+    /home/linuxbrew/.linuxbrew/bin/brew --version && /home/linuxbrew/.linuxbrew/bin/brew install gcc || true; \
+    else echo "Skipping gcc installation - Homebrew not available"; fi
 USER root
 
-# Install OpenClaw globally.
-# Bundle node-llama-cpp so the default local memory/embeddings provider works
-# in HAOS without requiring manual npm installs in /usr/lib.
-# Bundle mcporter so Home Assistant MCP auto-configuration works out of the box.
-# The image now ships Node 24, so use the current mcporter line.
+# Install OpenClaw and its bundled native/MCP dependencies.
 RUN npm config set fund false && npm config set audit false \
     && npm install -g openclaw@2026.8.2 node-llama-cpp@3.18.1 mcporter@0.12.3
 
-# Shell aliases and color options for interactive use
 RUN tee -a /etc/bash.bashrc <<'EOF'
-
-# Aliases
 alias bat="batcat"
 alias fd="fdfind"
-
-# Enable colors
 alias ls="ls --color=auto"
 alias grep="grep --color=auto"
 alias egrep="grep -E --color=auto"
@@ -138,11 +87,10 @@ alias fgrep="grep -F --color=auto"
 alias diff="diff --color=auto"
 alias ip="ip --color=auto"
 if [ -z "${LS_COLORS+x}" ]; then
-  export LS_COLORS="di=1;34:ln=1;36:so=1;pi=33:ex=1;32:bd=1;33:cd=1;33:su=1;31:sg=1;31:tw=1;34:ow=1;34"
+  export LS_COLORS="di=1;34:ln=1;36:so=1;35:pi=33:ex=1;32:bd=1;33:cd=1;33:su=1;31:sg=1;31:tw=1;34:ow=1;34"
 fi
 EOF
-# Expose the add-on version to the runtime (Home Assistant's builder passes
-# BUILD_VERSION); used by the optional Home Assistant health sensors.
+
 ARG BUILD_VERSION
 ENV ADDON_VERSION=${BUILD_VERSION}
 
